@@ -407,8 +407,18 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     t0 = time.perf_counter()
     proc = subprocess.run(cmd, cwd=str(REPO_ROOT), env=env)
     total_s = time.perf_counter() - t0
+    invocation["main_returncode"] = proc.returncode
+    _dump_json(work_dir / "run_invocation.json", invocation)
+
     if proc.returncode != 0:
-        raise SystemExit(f"main.py failed with returncode={proc.returncode}")
+        if pred_json.is_file() and _load_json(pred_json):
+            print(
+                f"WARNING: main.py exited {proc.returncode} (often segm eval on GT with "
+                "missing/invalid segmentation). predictions.json exists; continuing with "
+                "bbox-only episodic eval."
+            )
+        else:
+            raise SystemExit(f"main.py failed with returncode={proc.returncode} and no predictions.json")
 
     # Independent bbox eval -> NTTT-compatible stats file (decoupled from main.py's ./results/).
     evaluate_bbox(test_gt_path, pred_json, cat_names, stats_file)
