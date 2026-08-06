@@ -79,6 +79,15 @@ def already_done(pkg_dir: Path) -> bool:
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--packages-dir", type=Path, required=True, help="Parent dir containing episode package subdirs")
+    p.add_argument(
+        "--images-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Override path to COCO images, forwarded to each package run. "
+            "Use when packages were copied from another machine and images/ symlinks are broken."
+        ),
+    )
     p.add_argument("--devices", type=str, default="0", help="CUDA devices passed through to the per-episode script")
     p.add_argument("--k-shots", type=str, default=None, help="Comma-separated k filter, e.g. '1,3,5,10'")
     p.add_argument("--seeds", type=str, default=None, help="Comma-separated seed filter, e.g. '10042,10043,10044'")
@@ -146,6 +155,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "--model-version",
             args.model_version,
         ]
+        if args.images_dir is not None:
+            cmd += ["--images-dir", str(args.images_dir.expanduser().resolve())]
         if args.force:
             cmd.append("--force")
         if args.dry_run:

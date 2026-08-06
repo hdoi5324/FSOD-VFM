@@ -84,7 +84,25 @@ def check_prerequisites(repo_root: Path) -> None:
         )
 
 
-def resolve_images_dir(package_dir: Path, provenance: Dict[str, Any]) -> Path:
+def resolve_images_dir(
+    package_dir: Path,
+    provenance: Dict[str, Any],
+    *,
+    override: Optional[Path] = None,
+) -> Path:
+    """Resolve the COCO images directory for an episode package.
+
+    Priority:
+      1. ``--images-dir`` override (for packages copied across machines)
+      2. Package ``images/`` symlink (or directory) if it exists and resolves
+      3. ``provenance.images_dir`` absolute path if it still exists
+    """
+    if override is not None:
+        images_dir = override.expanduser().resolve()
+        if not images_dir.is_dir():
+            raise SystemExit(f"--images-dir does not exist or is not a directory: {images_dir}")
+        return images_dir
+
     files = provenance.get("files") or {}
     symlink_name = files.get("images_symlink", "images")
     images_dir = package_dir / symlink_name
@@ -94,7 +112,9 @@ def resolve_images_dir(package_dir: Path, provenance: Dict[str, Any]) -> Path:
     if fallback and Path(fallback).exists():
         return Path(fallback).resolve()
     raise SystemExit(
-        f"Could not resolve images dir: tried {images_dir} and provenance.images_dir={fallback!r}"
+        f"Could not resolve images dir: tried {images_dir} and "
+        f"provenance.images_dir={fallback!r}. "
+        f"Pass --images-dir /path/to/coco_13393/images when packages were copied from another machine."
     )
 
 
@@ -288,6 +308,15 @@ def build_main_cmd(
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--package-dir", type=Path, required=True, help="Episode package directory")
+    p.add_argument(
+        "--images-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Override path to COCO images (shared across packages). "
+            "Use when package images/ symlinks or provenance.images_dir point at another machine."
+        ),
+    )
     p.add_argument("--devices", type=str, default="0", help="CUDA_VISIBLE_DEVICES value (e.g. '0' or '0,1')")
     p.add_argument("--force", action="store_true", help="Re-run even if coco_eval_stats_.txt exists")
     p.add_argument("--dry-run", action="store_true", help="Convert support + print command without running main.py")
@@ -336,7 +365,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if not args.skip_prereq_check and not args.dry_run:
         check_prerequisites(REPO_ROOT)
 
-    images_dir = resolve_images_dir(package_dir, provenance)
+    images_dir = resolve_images_dir(package_dir, provenance, override=args.images_dir)
     support_coco_path = resolve_support_path(package_dir, provenance)
     test_gt_path = resolve_test_gt_path(package_dir, provenance)
     cat_names = category_names(provenance)
