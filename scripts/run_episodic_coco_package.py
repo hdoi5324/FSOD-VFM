@@ -188,18 +188,41 @@ def convert_coco_support_to_fsodvfm(support_coco: Dict[str, Any]) -> Dict[str, L
     return {k: v for k, v in out.items() if v}
 
 
+def package_allows_k_mismatch(provenance: Dict[str, Any]) -> bool:
+    """True when provenance records fewer/more than k_shot boxes for some class."""
+    if provenance.get("allow_k_mismatch"):
+        return True
+    k = provenance.get("k_shot")
+    counts = provenance.get("ann_counts_by_category_id") or {}
+    if k is None or not counts:
+        return False
+    return any(int(n) != int(k) for n in counts.values())
+
+
 def validate_support_counts(
     support_fsod: Dict[str, List[Dict[str, Any]]],
     provenance: Dict[str, Any],
+    *,
+    allow_k_mismatch: bool = False,
 ) -> None:
     k = provenance.get("k_shot")
     if k is None:
         return
+    allow = allow_k_mismatch or package_allows_k_mismatch(provenance)
     for name, shots in support_fsod.items():
         if len(shots) != k:
-            raise SystemExit(
-                f"Support count mismatch for class {name!r}: got {len(shots)} shots, expected k_shot={k}"
-            )
+            if allow:
+                print(
+                    f"WARNING: Support count mismatch for class {name!r}: "
+                    f"got {len(shots)} shots, expected k_shot={k} "
+                    "(continuing; --allow-k-mismatch)",
+                    file=sys.stderr,
+                )
+            else:
+                raise SystemExit(
+                    f"Support count mismatch for class {name!r}: "
+                    f"got {len(shots)} shots, expected k_shot={k}"
+                )
 
 
 def write_coco_eval_stats_txt(stats_path: Path, bbox_stats: Sequence[float]) -> None:
@@ -342,6 +365,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Skip checkpoint / dinov2 directory checks (useful for dry-run)",
     )
+    p.add_argument(
+        "--allow-k-mismatch",
+        action="store_true",
+        help=(
+            "Allow fewer/more than k_shot support boxes per class. "
+            "Also auto-detected from provenance.json when ann counts differ."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -373,7 +404,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     work_dir.mkdir(parents=True, exist_ok=True)
     support_coco = _load_json(support_coco_path)
     support_fsod = convert_coco_support_to_fsodvfm(support_coco)
-    validate_support_counts(support_fsod, provenance)
+    validate_support_counts(
+        support_fsod,
+        provenance,
+        allow_k_mismatch=args.allow_k_mismatch,
+    )
 
     support_fsod_path = work_dir / "support_fsodvfm.json"
     _dump_json(support_fsod_path, support_fsod)

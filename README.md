@@ -147,12 +147,52 @@ dataset/CDFSOD/
 
 ## 2. Quick Start
 
+This `dev` branch’s [`fsod.yml`](fsod.yml) installs **PyTorch 2.7.1+cu128**.
+UPN ops (`chatrex/upn/ops`) are a CUDA extension
+([MultiScaleDeformableAttention](https://github.com/fundamentalvision/Deformable-DETR),
+vendored from [ChatRex](https://github.com/IDEA-Research/ChatRex)).
+`nvcc` must match PyTorch’s CUDA (**12.8**), not a newer system toolkit (e.g. `/usr/local/cuda` 13.0).
+
 ### Environment Setup
 
 ```bash
 conda env create -f fsod.yml
 conda activate FSODVFM
 ```
+
+Install a **CUDA 12.8** compiler and headers *inside the env* (do **not** install
+`gcc=9.5.0` / `gxx=9.5.0` from conda-forge — that conflicts with `cuda-nvcc` 12.8).
+System `g++` 13.x is fine.
+
+```bash
+conda activate FSODVFM
+conda install -c nvidia cuda-nvcc=12.8 cuda-cudart-dev=12.8 cuda-libraries-dev=12.8 ninja -y
+```
+
+Point the shell at the conda toolkit and PyTorch’s `lib` (needed for **build and later runs**):
+
+```bash
+export CUDA_HOME="$CONDA_PREFIX"
+export PATH="$CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))'):${LD_LIBRARY_PATH:-}"
+```
+
+Check before compiling:
+
+```bash
+which nvcc          # must be $CONDA_PREFIX/bin/nvcc, not /usr/local/cuda/bin/nvcc
+nvcc --version      # 12.8
+python -c "import torch; print(torch.__version__, torch.version.cuda)"  # 2.7.1+cu128  12.8
+```
+
+Persist the library path so `libc10.so` is found after the ops install:
+
+```bash
+conda env config vars set LD_LIBRARY_PATH="$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')"
+conda deactivate && conda activate FSODVFM
+```
+
+`CUDA_HOME` / `PATH` still need setting in each new shell (or add them after `conda activate`).
 
 ### DINOv2 Installation
 ```bash
@@ -162,11 +202,19 @@ git clone https://github.com/facebookresearch/dinov2.git
 
 ### UPN Installation
 
+With `CUDA_HOME` / `PATH` / `LD_LIBRARY_PATH` set as above:
+
 ```bash
-conda install -c conda-forge gcc=9.5.0 gxx=9.5.0 ninja -y
 cd chatrex/upn/ops
-pip install -v -e .
+pip install -v --no-build-isolation -e .
+python -c "import MultiScaleDeformableAttention as MSDA; print('ok', MSDA)"
 ```
+
+If `cusparse.h` is missing, `cuda-libraries-dev=12.8` was not installed.
+If import fails with `libc10.so: cannot open shared object file`, `LD_LIBRARY_PATH` does not include `site-packages/torch/lib`.
+
+Upstream README used `conda-forge gcc=9.5.0 gxx=9.5.0` then `pip install -v -e .`.
+That solver pin is incompatible with this env’s CUDA 12.8 stack; skip it.
 
 ### SAM2 Installation
 
